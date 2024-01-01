@@ -18,7 +18,6 @@ $(function () {
       "application": $("#filter-product"),
       "os": $("#filter-os"),
       "architecture": $("#filter-arch"),
-      "e10sEnabled": $("#filter-e10s"),
       "child": $("#filter-process-type"),
     };
     gAxesList = [
@@ -36,6 +35,19 @@ $(function () {
     $("#selected-key4"),
   ]
     gInitialPageState = loadStateFromUrlAndCookie();
+
+    // If we don't have release versions and the page state is for release,
+    // trigger an authorization failure flow
+    let maxIsRelease = gInitialPageState.max_channel_version &&
+                       gInitialPageState.max_channel_version.startsWith("release/");
+    if (maxIsRelease &&
+        typeof Telemetry.AuthorizationFailed === "function" &&
+        !Telemetry.getVersions().filter(cv => cv.startsWith("release/")).length
+    ) {
+      // Persist state to cookie so it can survive the auth flow.
+      saveStateStringToCookie(buildStateString(gInitialPageState));
+      Telemetry.AuthorizationFailed();
+    }
 
     // Set up settings selectors
     multiselectSetOptions($("#channel-version"),
@@ -66,25 +78,26 @@ $(function () {
     // Initialize setting values from the page state
     $("#sort-keys")
       .multiselect("select", gInitialPageState.sort_keys);
-    $("input[name=table-toggle][value=" + (gInitialPageState.table !==
-        0 ? 1 : 0) + "]")
-      .prop("checked", true)
+      $("input[name=table-toggle]")
+      .prop("checked", gInitialPageState.table !== 0)
       .trigger("change");
-    $("input[name=cumulative-toggle][value=" + (gInitialPageState.cumulative !==
-        0 ? 1 : 0) + "]")
-      .prop("checked", true)
+    $("input[name=cumulative-toggle]")
+      .prop("checked", gInitialPageState.cumulative !== 0)
       .trigger("change");
-    $("input[name=trim-toggle][value=" + (gInitialPageState.trim !== 0 ?
-        1 : 0) + "]")
-      .prop("checked", true)
+    $("input[name=trim-toggle]")
+      .prop("checked", gInitialPageState.trim !== 0)
       .trigger("change");
-    $("input[name=build-time-toggle][value=" + (gInitialPageState.use_submission_date !==
-        0 ? 1 : 0) + "]")
-      .prop("checked", true)
+    $("input[name=build-time-toggle]")
+      .prop("checked", gInitialPageState.use_submission_date !== 0)
       .trigger("change");
-    $("input[name=sanitize-toggle][value=" + (gInitialPageState.sanitize !==
-        0 ? 1 : 0) + "]")
-      .prop("checked", true)
+    $("input[name=sanitize-toggle]")
+      .prop("checked", gInitialPageState.sanitize !== 0)
+      .trigger("change");
+    $("input[name=include-spill-toggle]")
+      .prop("checked", gInitialPageState.include_spill > 0)
+      .trigger("change");
+    $("input[name=sort-by-value]")
+      .prop("checked", gInitialPageState.sort_by_value > 0)
       .trigger("change");
 
     updateOptions(function () {
@@ -104,20 +117,12 @@ $(function () {
           .multiselect("selectAll", false)
           .multiselect("updateButtonText");
       }
-      if (gInitialPageState.e10s !== null) {
-        $("#filter-e10s")
-          .multiselect("select", gInitialPageState.e10s);
-      } else {
-        $("#filter-e10s")
-          .multiselect("selectAll", false)
-          .multiselect("updateButtonText");
-      }
       if (gInitialPageState.processType !== null) {
         $("#filter-process-type")
           .multiselect("select", gInitialPageState.processType);
       } else {
         $("#filter-process-type")
-          .multiselect("selectAll", false)
+          .multiselect("select", "*")
           .multiselect("updateButtonText");
       }
 
@@ -156,7 +161,6 @@ $(function () {
         "#filter-product",
         "#filter-os",
         "#filter-arch",
-        "#filter-e10s",
         "#filter-process-type",
         "#compare",
       ].join(",")).change(function (e) {
@@ -265,7 +269,7 @@ $(function () {
                 if (getAggregate === undefined) {
                   throw "Could not obtain aggregate function"
                 };
-
+                
                 gCurrentHistogramsList = Object.keys(
                     histogramsMap)
                   .map(function (label) {
@@ -344,13 +348,13 @@ $(function () {
 
                 $("#selected-key1")
                   .trigger("change");
-              }, $("input[name=sanitize-toggle]:checked")
-              .val() !== "0");
-          }, 0);
+                }, $("input[name=sanitize-toggle]")
+                .is(":checked"));
+        }, 0);
         });
 
       $(
-          "#selected-key1, #selected-key2, #selected-key3, #selected-key4, input[name=table-toggle], input[name=cumulative-toggle], input[name=trim-toggle]"
+          "#selected-key1, #selected-key2, #selected-key3, #selected-key4, input[name=table-toggle], input[name=cumulative-toggle], input[name=trim-toggle], input[name=include-spill-toggle], input[name=sort-by-value]"
         )
         .change(function (e) {
           if (gCurrentHistogramsList.length > 1) { // Keyed histogram with multiple keys, find the selected keys
@@ -374,14 +378,15 @@ $(function () {
               }
             });
           } else { // Non-keyed histogram or a keyed histogram with only one key
-            var histogramsList = gCurrentHistogramsList;
+            var histogramsList = makenewHistogramListCopy(gCurrentHistogramsList);
           }
-          displayHistograms(histogramsList, gCurrentDates, $(
-              "input[name=table-toggle]:checked")
-            .val() !== "0", $(
-              "input[name=cumulative-toggle]:checked")
-            .val() !== "0", $("input[name=trim-toggle]:checked")
-            .val() !== "0");
+          displayHistograms(histogramsList, gCurrentDates,
+            $("input[name=table-toggle]").is(':checked'),
+            $("input[name=cumulative-toggle]").is(':checked'),
+            $("input[name=trim-toggle]").is(':checked'),
+            $("input[name=include-spill-toggle]").is(':checked'),
+            $("input[name=sort-by-value]").is(':checked')
+          );
           saveStateToUrlAndCookie();
         });
 
@@ -436,7 +441,7 @@ function updateOptions(callback) {
     }
 
     multiselectSetOptions($("#measure"), getHumanReadableOptions("measure",
-      deduplicate(optionsMap.metric || [])));
+      deduplicate(optionsMap.metric || []).concat(gInitialPageState.measure)));
     $("#measure")
       .multiselect("select", gInitialPageState.measure);
 
@@ -444,8 +449,6 @@ function updateOptions(callback) {
       "application", deduplicate(optionsMap.application || [])));
     multiselectSetOptions($("#filter-arch"), getHumanReadableOptions(
       "architecture", deduplicate(optionsMap.architecture || [])));
-    multiselectSetOptions($("#filter-e10s"), getHumanReadableOptions(
-      "e10sEnabled", deduplicate(optionsMap.e10sEnabled || [])));
     multiselectSetOptions($("#filter-process-type"),
       getHumanReadableOptions("child", deduplicate(optionsMap.child || []))
     );
@@ -488,8 +491,7 @@ function calculateHistograms(callback, sanitize) {
     return;
   }
 
-  var useSubmissionDate = $("input[name=build-time-toggle]:checked")
-    .val() !== "0";
+  var useSubmissionDate = $("input[name=build-time-toggle]").is(":checked");
   var fullEvolutionsMap = {}; // Mapping from labels (the keys in keyed histograms) to lists of combined filtered evolutions (one per comparison option, combined from all filter sets in that option)
   var optionValues = {}; // Map from labels to lists of options in the order that they were done being processed, rather than the order they appeared in
   var filterSetsCount = 0,
@@ -531,6 +533,9 @@ function calculateHistograms(callback, sanitize) {
             for (var label in fullEvolutionMap) { // Make a list of evolutions and option labels for each label in the evolution
               if (sanitize) {
                 fullEvolutionMap[label] = fullEvolutionMap[label].sanitized();
+              }
+              if (!fullEvolutionMap[label]) {
+                continue; // data was sanitized away. Move along.
               }
               if (!fullEvolutionsMap.hasOwnProperty(label)) {
                 fullEvolutionsMap[label] = [];
@@ -804,9 +809,17 @@ function updateDateRange(callback, dates, updatedByUser, shouldUpdateRangebar) {
   }
 }
 
-function displayHistograms(histogramsList, dates, useTable, cumulative, trim) {
+function displayHistograms(histogramsList, dates, useTable, cumulative, trim, includeSpill, sortByValue) {
   cumulative = cumulative === undefined ? false : cumulative;
   trim = trim === undefined ? true : trim;
+  // Hide the 'spill' bucket if present
+  if (!includeSpill && histogramsList.length) {
+    const spillIndex = histogramsList[0].histograms[0].buckets.indexOf("spill");
+    histogramsList[0].histograms[0].buckets = histogramsList[0].histograms[0].buckets
+                                            .filter((value, index) => index !== spillIndex);
+    histogramsList[0].histograms[0].values = histogramsList[0].histograms[0].values
+                                            .filter((value, index) => index !== spillIndex);
+  }
 
   var minTrimLeft = 0,
     minTrimRight = 0,
@@ -878,10 +891,43 @@ function displayHistograms(histogramsList, dates, useTable, cumulative, trim) {
     });
   }
 
+  if (histogramsList.length > 0 && histogramsList[0].histograms.length > 0) {
+    // Set the histogram caption to the histogram description
+    var description = histogramsList[0].histograms[0].description
+    var metric = histogramsList[0].histograms[0].measure
+    var channel = $("#channel-version").val().split("/")[0]
+    var desc = getDescription(metric, channel, description);
+    var link = getDescriptionLink(metric, channel, description);
+    if (metric != desc) {
+      $('#dist-caption-text').html(desc);
+    } else {
+      $('#dist-caption-text').text("");
+    }
+    $('#dist-caption-link').html(link);
+
+    var useCounterLink = getUseCounterLink(metric, channel, description);
+    $('#use-counter-link').html(useCounterLink);
+
+  } else {
+    $('#dist-caption-text').text(""); // Clear the histogram caption
+    $('#dist-caption-link').text(""); // Clear the histogram link
+    $('#use-counter-link').text(""); // Clear the use counter link
+  }
+
   if (histogramsList.length <= 1) { // Only one histograms set
     if (histogramsList.length === 1 && histogramsList[0].histograms.length ===
       1) { // Only show one set of axes
       var histogram = histogramsList[0].histograms[0];
+      if (histogram.kind == 'categorical' && sortByValue) {
+        let sorting = [];
+        for (let index = 0; index < histogram.buckets.length; index++) {
+          sorting.push([histogram.values[index], histogram.buckets[index]]);
+        }
+        sorting.sort((a, b) => b[0] - a[0] || a[1].localeCompare(b[1]));
+        histogram.values = sorting.map(x => x[0]);
+        histogram.buckets = sorting.map(x => x[1]);
+      }
+
       $("#prop-kind")
         .text(histogram.kind);
       $("#prop-dates")
@@ -916,10 +962,30 @@ function displayHistograms(histogramsList, dates, useTable, cumulative, trim) {
       }
       $("#summary")
         .show();
+      $("#stats-comparison")
+        .hide();
 
     } else {
+      let histogramPercentiles = $("#histogram-percentiles");
+      histogramPercentiles.empty();
+      if (histogramsList.length > 0) {
+        histogramPercentiles.append(
+          histogramsList[0].histograms.map(function(histogram) {
+            return `<tr>
+            <th>${histogram.measure}</th>
+            <td>${formatNumber(histogram.percentile(5))}</td>
+            <td>${formatNumber(histogram.percentile(25))}</td>
+            <td>${formatNumber(histogram.percentile(50))}</td>
+            <td>${formatNumber(histogram.percentile(75))}</td>
+            <td>${formatNumber(histogram.percentile(95))}</td>
+            </tr>`;
+          })
+        );
+      }
       $("#summary")
         .hide();
+      $("#stats-comparison")
+        .show();
     }
 
     $("#plots")
@@ -939,10 +1005,13 @@ function displayHistograms(histogramsList, dates, useTable, cumulative, trim) {
     axesContainer.removeClass("col-md-6")
       .addClass("col-md-12")
       .show();
-    axesContainer.find("h3")
-      .hide(); // Hide the graph title as it doesn't need one
-    $("#sort-keys-option")
-      .hide();
+    if (isHistogramsListKeyed(histogramsList)) {
+      axesContainer.find("h3").show();
+      $("#sort-keys-option").show();
+    } else {
+      axesContainer.find("h3").hide(); // Hide the graph title as it doesn't need one
+      $("#sort-keys-option").hide();
+    }
 
     if (histogramsList.length > 0) {
       displaySingleHistogramSet($("#distribution1")
@@ -955,6 +1024,8 @@ function displayHistograms(histogramsList, dates, useTable, cumulative, trim) {
     }
   } else { // Show all four axes
     $("#summary")
+      .hide();
+    $("#stats-comparison")
       .hide();
     $("#plots")
       .removeClass("col-md-9")
@@ -989,7 +1060,6 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
   $(axes)
     .empty(); // Remove tables if they are present
 
-  $('#dist-caption').text(histograms[0].description);
 
   // No histograms available
   if (histograms.length === 0) {
@@ -1130,7 +1200,25 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
     });
   });
 
+  function get_label(index) {
+    if(histograms[0].kind == 'categorical'){
+        return starts[index]
+    } else {
+        return formatNumber(starts[index])
+    }
+  }
+
+  var num_labels = 20,
+      bottom = 30,
+      right = $(axes).width() / (distributionSamples[0].length + 1)
+  if(histograms[0].kind == 'categorical'){
+    num_labels = starts.length
+    bottom = 150
+    right *= 1.5
+  }
+
   // Plot the data using MetricsGraphics
+
   if (histograms.length === 1) { // One histogram available, display as histogram
     var histogram = histograms[0];
     MG.data_graphic({
@@ -1142,21 +1230,20 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
         .width(), // We can't use the full_width option of MetricsGraphics because that breaks page zooming for graphs
       height: 600,
       top: 0,
+      bottom: bottom,
       left: 70,
-      right: $(axes)
-        .width() / (distributionSamples[0].length + 1),
+      right: right,
       max_y: maxPercentage + 2, // Add some extra space to account for the top label
       transition_on_update: false,
       target: axes,
-      x_label: histogram.description,
+      x_label: histogram.measure,
       y_label: "Percentage of Samples",
-      xax_ticks: 20,
+      xax_count: num_labels,
       y_extended_ticks: true,
       x_accessor: "value",
       y_accessor: "count",
-      xax_format: function (index) {
-        return formatNumber(starts[index]);
-      },
+      reduceXTicks: false,
+      xax_format: get_label,
       yax_format: function (value) {
         return value + "%";
       },
@@ -1164,12 +1251,15 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
         var count = formatNumber(countsList[0][d.x]),
           percentage = Math.round(d.y * 100) / 100 + "%";
         var label;
-        if (ends[d.x] === Infinity) {
+        if (ends[d.x] === Infinity && histogram.kind != "categorical") {
           label = "sample value \u2265 " + formatNumber(cumulative ? 0 :
             starts[d.x]);
         } else if (histogram.kind === "enumerated") {
           label = "sample value" + (cumulative ? " \u2264 " : " is ") +
             formatNumber(starts[d.x]);
+        } else if (histogram.kind == "categorical") {
+          label = "sample value" + (cumulative ? " \u2264 " : " is ") +
+            get_label(d.x)
         } else {
           label = formatNumber(cumulative ? 0 : starts[d.x]) +
             " \u2264 sample value < " + formatNumber(ends[d.x]);
@@ -1282,7 +1372,7 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
       target: axes,
       //min_x: -0.5,
       max_x: truths.length + 0.5,
-      x_label: histograms[0].description,
+      x_label: histograms[0].measure,
       y_label: "Percentage True",
       xax_count: truths.length,
       y_extended_ticks: true,
@@ -1311,6 +1401,7 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
         entry.value += 0.5;
       });
     });
+
     MG.data_graphic({
       data: distributionSamples,
       chart_type: "line",
@@ -1320,18 +1411,18 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
         .width(), // We can't use the full_width option of MetricsGraphics because that breaks page zooming for graphs
       height: 600,
       left: 70,
+      right: right,
+      bottom: bottom,
       max_y: maxPercentage + 2, // Add some extra space to account for the bezier curves
       transition_on_update: false,
       target: axes,
-      x_label: histograms[0].description,
+      x_label: histograms[0].measure,
       y_label: "Percentage of Samples",
-      xax_ticks: 20,
+      xax_count: num_labels,
       y_extended_ticks: true,
       x_accessor: "value",
       y_accessor: "count",
-      xax_format: function (index) {
-        return formatNumber(starts[index]);
-      },
+      xax_format: get_label,
       yax_format: function (value) {
         return value + "%";
       },
@@ -1371,18 +1462,22 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
           }];
         }
         var labelValue;
-        if (end === Infinity) {
+        if (end === Infinity && histograms[0].kind != "categorical") {
           labelValue = "sample value \u2265 " + formatNumber(cumulative ?
             0 : start) + ":";
         } else if (histograms[0].kind === "enumerated") {
           labelValue = "sample value" + (cumulative ? " \u2264 " : " is ") +
             formatNumber(start) + ":";
+        } else if (histograms[0].kind == "categorical") {
+          labelValue = "sample value" + (cumulative ? " \u2264 " : " is ") +
+            get_label(Math.floor(d.key))
         } else {
           labelValue = formatNumber(cumulative ? 0 : start) +
             " \u2264 sample value < " + formatNumber(end) + ":";
         }
         var legend = d3.select(axes)
           .select(".mg-active-datapoint")
+          .attr("transform", "")
           .text(labelValue)
           .style("fill", "white");
         var lineHeight = 1.1;
@@ -1474,7 +1569,7 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
         .attr("dx", "0.3em")
         .attr("dy", "0")
         .attr("text-anchor", "start");
-      if (histograms[0].kind == 'boolean' || histograms[0].kind == 'flag') {
+      if (histograms[0].kind == 'boolean' || histograms[0].kind == 'flag' || histograms[0].kind == 'categorical') {
         var jText = $(text);
         jText.attr('transform', 'rotate(20 ' + jText.attr('x') + ' ' + jText.attr('y') + ')');
       }
@@ -1493,6 +1588,22 @@ function displaySingleHistogramSet(axes, useTable, histograms, title,
 
 function displaySingleHistogramTableSet(axes, starts, ends, countsList,
   histograms) {
+
+  is_categorical = histograms[0].kind == "categorical"
+  start_labs = [$("<th></th>").text("Start"), $("<th></th>").text("End")]
+  if (is_categorical) {
+    start_labs = [$("<th></th>").text("Category")]
+  }
+
+  function get_labels (i) {
+    if(is_categorical) {
+      return [$("<td></td>").text(starts[i])]
+    } else {
+      return [$("<td></td>").text(formatNumber(starts[i])),
+              $("<td></td>").text(formatNumber(ends[i]))]
+    }
+  }
+
   $(axes)
     .empty()
     .append(
@@ -1508,12 +1619,7 @@ function displaySingleHistogramTableSet(axes, starts, ends, countsList,
           .append(
             $("<tr></tr>")
             .append(
-            [
-              $("<th></th>")
-                .text("Start"),
-              $("<th></th>")
-                .text("End"),
-            ].concat(
+            start_labs.concat(
                 histograms.map(function (histogram, i) {
                   return $("<th></th>")
                     .text(histogram.measure + " Count");
@@ -1526,12 +1632,7 @@ function displaySingleHistogramTableSet(axes, starts, ends, countsList,
             countsList[0].map(function (count, i) {
               return $("<tr></tr>")
                 .append(
-              [
-                $("<td></td>")
-                    .text(formatNumber(starts[i])),
-                $("<td></td>")
-                    .text(formatNumber(ends[i])),
-              ].concat(
+                  get_labels(i).concat(
                     countsList.map(function (counts, j) {
                       var percentage = Math.round(10000 * counts[i] /
                         histograms[j].count) / 100;
@@ -1564,20 +1665,24 @@ function saveStateToUrlAndCookie() {
       .val(),
     sort_keys: $("#sort-keys")
       .val(),
-    table: $("input[name=table-toggle]:checked")
-      .val() !== "0" ? 1 : 0,
-    cumulative: $("input[name=cumulative-toggle]:checked")
-      .val() !== "0" ? 1 : 0,
-    use_submission_date: $("input[name=build-time-toggle]:checked")
-      .val() !== "0" ? 1 : 0,
-    sanitize: $("input[name=sanitize-toggle]:checked")
-      .val() !== "0" ? 1 : 0,
-    trim: $("input[name=trim-toggle]:checked")
-      .val() !== "0" ? 1 : 0,
+    table: $("input[name=table-toggle]")
+      .is(":checked") ? 1 : 0,
+    cumulative: $("input[name=cumulative-toggle]")
+      .is(":checked") ? 1 : 0,
+    use_submission_date: $("input[name=build-time-toggle]")
+      .is(":checked") ? 1 : 0,
+    sanitize: $("input[name=sanitize-toggle]")
+      .is(":checked") ? 1 : 0,
+    trim: $("input[name=trim-toggle]")
+      .is(":checked") ? 1 : 0,
     start_date: moment(picker.startDate)
       .format("YYYY-MM-DD"),
     end_date: moment(picker.endDate)
       .format("YYYY-MM-DD"),
+    include_spill: $("input[name=include-spill-toggle]")
+      .is(":checked") ? 1 : 0,
+    sort_by_value: $("input[name=sort-by-value]")
+      .is(":checked") ? 1 : 0
   };
 
   // Save a few unused properties that are used in the evolution dashboard, since state is shared between the two dashboards
@@ -1620,12 +1725,6 @@ function saveStateToUrlAndCookie() {
     .size()) {
     gInitialPageState.arch = selected;
   }
-  var selected = $("#filter-e10s")
-    .val() || [];
-  if (selected.length !== $("#filter-e10s option")
-    .size()) {
-    gInitialPageState.e10s = selected;
-  }
   var selected = $("#filter-process-type")
     .val() || [];
   if (selected.length !== $("#filter-process-type option")
@@ -1633,37 +1732,9 @@ function saveStateToUrlAndCookie() {
     gInitialPageState.processType = selected;
   }
 
-  var stateString = Object.keys(gInitialPageState)
-    .sort()
-    .map(function (key) {
-      var value = gInitialPageState[key];
-      if ($.isArray(value)) {
-        value = value.join("!");
-      }
-      return encodeURIComponent(key) + "=" + encodeURIComponent(value);
-    })
-    .join("&");
-
-  // Save to the URL hash if it changed
-  var url = "";
-  var index = window.location.href.indexOf("#");
-  if (index > -1) {
-    url = decodeURI(window.location.href.substring(index + 1));
-  }
-  if (url[0] == "!") {
-    url = url.slice(1);
-  }
-  if (url !== stateString) {
-    window.location.replace(window.location.origin + window.location.pathname +
-      "#!" + encodeURI(stateString));
-    $(".permalink-control input")
-      .hide(); // Hide the permalink box again since the URL changed
-  }
-
-  // Save the state in a cookie that expires in 3 days
-  var expiry = new Date();
-  expiry.setTime(expiry.getTime() + (3 * 24 * 60 * 60 * 1000));
-  document.cookie = "stateFromUrl=" + stateString + "; expires=" + expiry.toGMTString();
+  var stateString = buildStateString(gInitialPageState);
+  saveStateStringToUrl(stateString);
+  saveStateStringToCookie(stateString);
 
   // Add link to switch to the evolution dashboard with the same settings
   var dashboardURL = window.location.origin + window.location.pathname.replace(
@@ -1686,8 +1757,7 @@ function saveStateToUrlAndCookie() {
         return count;
       });
     });
-    if ($("input[name=cumulative-toggle]:checked")
-      .val() !== "0") {
+    if ($("input[name=cumulative-toggle]").is(":checked")) {
       // Apply cumulative option
       countsList = countsList.map(function (counts) {
         var total = 0;
@@ -1698,7 +1768,7 @@ function saveStateToUrlAndCookie() {
     }
     var jsonValue;
     var csvValue;
-    if (gCurrentHistogramsList.length == 1) {
+    if (!isHistogramsListKeyed(gCurrentHistogramsList)) {
       jsonValue = JSON.stringify(histograms[0].map(function (count, start,
         end, i) {
         var entry = {
@@ -1729,8 +1799,6 @@ function saveStateToUrlAndCookie() {
       // JSON
       var outputObj = {};
       gCurrentHistogramsList
-        .filter(titleHistogramsPair =>
-          shownKeys.indexOf(titleHistogramsPair.title) != -1)
         .sort((a, b) => shownKeys.indexOf(a.title) - shownKeys.indexOf(b.title))
         .forEach(titleHistogramsPair => {
           outputObj[titleHistogramsPair.title] = [];
@@ -1754,8 +1822,6 @@ function saveStateToUrlAndCookie() {
       histograms.forEach(hist => titles.push(hist.measure));
       outputArr.push(titles);
       gCurrentHistogramsList
-        .filter(titleHistogramsPair =>
-          shownKeys.indexOf(titleHistogramsPair.title) != -1)
         .sort((a, b) => shownKeys.indexOf(a.title) - shownKeys.indexOf(b.title))
         .forEach(titleHistogramsPair => {
           var record;
@@ -1814,18 +1880,28 @@ function saveStateToUrlAndCookie() {
       .find("span")
       .text("");
   }
+}
 
-  // Reload Disqus comments for the new page state
-  var identifier = "dist@" + gInitialPageState.measure;
-  if (identifier !== gPreviousDisqusIdentifier) {
-    gPreviousDisqusIdentifier = identifier;
-    DISQUS.reset({
-      reload: true,
-      config: function () {
-        this.page.identifier = identifier;
-        this.page.url = window.location.href;
-        console.log("reloading comments for page ID ", this.page.identifier)
-      }
-    });
-  }
+function isHistogramsListKeyed(histogramsList) {
+  return histogramsList.some(entry => entry.title !== "");
+}
+
+function makenewHistogramListCopy(histogramList) {
+ return histogramList.map((item) => {
+    return {
+      ...item,
+      histograms: item.histograms.map((histogram) => {
+        const newHistCopy = Object.create(histogram);
+        newHistCopy.buckets = histogram.buckets.slice(0);
+        newHistCopy.count = histogram.count;
+        newHistCopy.description = histogram.description;
+        newHistCopy.kind = histogram.kind;
+        newHistCopy.measure = histogram.measure;
+        newHistCopy.submissions = histogram.submissions;
+        newHistCopy.sum = histogram.sum;
+        newHistCopy.values = histogram.values.slice(0);
+        return newHistCopy;
+      }),
+    };
+  });
 }

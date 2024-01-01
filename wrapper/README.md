@@ -21,6 +21,8 @@ Where `params` is:
 * `sensibleCompare` - A boolean dictating whether or not you want to reduce the compared values to just the ones that you are likely to care about (default: `true`)
 * `keyLimit` - a positive integer limiting the number of a keyed measure's measures to be plotted, ordered by number of submissions (default: `4`)
 * `evoVersions` - A number telling us how many versions back to look. If > 0, we will ignore trim, compare, and sensibleCompare and show an evolution instead of a histogram (default: `0`)
+* `percentile` - A number telling us the value below which a given percentage of measurements may be found. This is only valid when evoVersions > 0 (default: `50`)
+* `evoBucketIndex` - The index denoting which bucket index to used to view an evolution for enumerated histograms. (default:0)
 
 Where `parentEl` is:
 * The parent element you want the wrapper to render its plots into.
@@ -37,7 +39,7 @@ Where `parentEl` is:
 <body>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
-  <script src="https://telemetry.mozilla.org/new-pipeline/lib/metricsgraphics.js"></script>
+  <script src="https://telemetry.mozilla.org/new-pipeline/lib/metricsgraphics.min.js"></script>
   <script src="https://telemetry.mozilla.org/new-pipeline/lib/d3pie.min.js"></script>
   <script src="https://telemetry.mozilla.org/v2/telemetry.js"></script>
   <script src="https://telemetry.mozilla.org/wrapper/telemetry-wrapper.js"></script>

@@ -1,7 +1,7 @@
 Telemetry.js (v2)
 =================
 
-Telemetry.js v2 is a Javascript library for accessing v4 pipeline data from [Mozilla Telemetry](https://telemetry.mozilla.org/). This library powers the v4 pipeline dashboards on Mozilla Telemetry.
+Telemetry.js is a Javascript library for accessing pipeline data from [Mozilla Telemetry](https://telemetry.mozilla.org/). This library powers the pipeline dashboards on Mozilla Telemetry.
 
 Not familiar with Mozilla Telemetry? Check out this [high-level overview](https://anthony-zhang.me/blog/telemetry-demystified/).
 
@@ -196,6 +196,12 @@ This is provided as a convenience method to make it easy to plot summary statist
 ### `someEvolutionInstance.submissions()`
 
 Returns a list of submission counts for each histogram in `someEvolutionInstance`, sorted by date (oldest to newest).
+
+This is provided as a convenience method to make it easy to plot summary statistics for histogram evolutions.
+
+### `someEvolutionInstance.sampleCounts()`
+
+Returns a list of sample counts for each histogram in `someEvolutionInstance`, sorted by date (oldest to newest).
 
 This is provided as a convenience method to make it easy to plot summary statistics for histogram evolutions.
 

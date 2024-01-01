@@ -33,7 +33,7 @@ $(document)
         };
 
         // Horrible hacks to make some very specific functionality work
-        if (["aggregates", "filter-os"].indexOf($this.attr("id")) >= 0) {
+        if (["aggregates", "filter-os"].includes($this.attr("id"))) {
           // Add the Select All option to some of the selectors
           options.includeSelectAllOption = true;
         }
@@ -108,66 +108,24 @@ $(document)
       });
 
     // Date range pickers
-    $(".date-range")
-      .daterangepicker();
-    $(
-        ".daterangepicker input[name=daterangepicker_start], .daterangepicker input[name=daterangepicker_end]"
-      )
-      .keydown(function (event) {
-        // Cause Enter to apply the settings
-        if (event.keyCode == 13) {
-          var $this = $(this)
-            .parents(".daterangepicker");
-          $this.find(".applyBtn")
-            .focus()
-            .click();
-          event.preventDefault();
-          return false;
-        }
-      });
-
-    // Permalink control
-    $(".permalink-control")
-      .append(
-        '<div class="input-group">' +
-        '    <span class="input-group-btn"><button type="button" class="btn btn-default" title="Get Permalink"><span class="glyphicon glyphicon-link"></span></button></span>' +
-        '    <input type="text" class="form-control">' +
-        '</div>'
-      );
-    $(".permalink-control input")
-      .hide()
-      .focus(function () {
-        // Workaround for broken selection: http://stackoverflow.com/questions/5797539
-        var $this = $(this);
-        $this.select()
-          .mouseup(function () {
-            $this.unbind("mouseup");
+    if (document.getElementsByClassName("date-range").length) {
+      $(".date-range")
+        .daterangepicker();
+      $(".daterangepicker input[name=daterangepicker_start], .daterangepicker input[name=daterangepicker_end]")
+        .keydown(function (event) {
+          // Cause Enter to apply the settings
+          if (event.keyCode == 13) {
+            var $this = $(this)
+              .parents(".daterangepicker");
+            $this.find(".applyBtn")
+              .focus()
+              .click();
+            event.preventDefault();
             return false;
-          });
-      });
-    $(".permalink-control button")
-      .click(function () {
-        var $this = $(this);
-        $.ajax({
-          url: "https://api-ssl.bitly.com/shorten",
-          dataType: "jsonp",
-          data: {
-            longUrl: window.location.href,
-            access_token: "48ecf90304d70f30729abe82dfea1dd8a11c4584",
-            format: "json"
-          },
-          success: function (response) {
-            var longUrl = Object.keys(response.results)[0];
-            var shortUrl = response.results[longUrl].shortUrl;
-            $this.parents(".permalink-control")
-              .find("input")
-              .show()
-              .val(shortUrl)
-              .focus();
           }
         });
-      });
-  });
+    }
+  }); // ends document.ready() block
 
 // Load the current state from the URL, or the cookie if the URL is not specified
 function loadStateFromUrlAndCookie() {
@@ -198,7 +156,7 @@ function loadStateFromUrlAndCookie() {
     pageState.min_channel_version = null;
     pageState.max_channel_version = null;
     pageState.product = ["Firefox"];
-    pageState.os = pageState.arch = pageState.e10s = pageState.processType =
+    pageState.os = pageState.arch = pageState.processType =
       null;
     pageState.compare = "";
     pageState.keys = [];
@@ -225,8 +183,8 @@ function loadStateFromUrlAndCookie() {
     var aggregates = pageState.aggregates.split("!")
       .filter(function (v) {
         return ["5th-percentile", "25th-percentile", "median",
-            "75th-percentile", "95th-percentile", "mean"].indexOf(v) >= 0 ||
-          v.startsWith("bucket-");
+            "75th-percentile", "95th-percentile", "mean", "submissions"].indexOf(v) >= 0 || 
+            (v.trim() != "");
       });
     if (aggregates.length > 0) {
       pageState.aggregates = aggregates;
@@ -262,12 +220,6 @@ function loadStateFromUrlAndCookie() {
     .filter(function (v) {
       return v !== "";
     }) : null;
-  pageState.e10s = typeof pageState.e10s === "string" && pageState.e10s !== "" &&
-    pageState.e10s !== "null" ?
-    pageState.e10s.split("!")
-    .filter(function (v) {
-      return v !== "";
-    }) : null;
   pageState.processType = typeof pageState.processType === "string" &&
     pageState.processType !== "" && pageState.processType !== "null" ?
     pageState.processType.split("!")
@@ -275,7 +227,7 @@ function loadStateFromUrlAndCookie() {
       return v !== "";
     }) : null;
   pageState.compare = typeof pageState.compare === "string" && ["", "os",
-      "osVersion", "architecture", "e10sEnabled", "child"].indexOf(pageState.compare) >=
+      "osVersion", "architecture", "child"].indexOf(pageState.compare) >=
     0 ?
     pageState.compare : "";
 
@@ -330,6 +282,13 @@ function getFilterSetsMapping(filters, comparisonName) {
       .length) { // Some options are not selected, so we need to explicitly filter
       if (filterName === "os") {
         selected = compressOSs();
+      } else if (filterName === "child") {
+        // process type is now single-select.
+        if (selector.val() === "*") {
+          // Any process
+          continue;
+        }
+        selected = [selected];
       }
       if (filterName !== comparisonName) { // avoid filtering by the comparison name
         filterMapping[filterName] = selected;
@@ -385,6 +344,15 @@ function getFilterSetsMapping(filters, comparisonName) {
     case "osVersion":
       comparisonValues = filters["os"].val() || [];
       break;
+    case "child":
+      if (filters["child"].val() === "*") {
+        comparisonValues = Array.from(filters["child"][0].options)
+          .filter(opt => opt.value !== "*")
+          .map(opt => opt.value);
+      } else {
+        comparisonValues = filters["child"] ? [filters["child"].val()] : [];
+      }
+      break;
     default:
       comparisonValues = filters[comparisonName].val() || [];
       break;
@@ -415,7 +383,6 @@ function getHumanReadableOptions(filterName, options) {
     "nightly": 0,
     "aurora": 1,
     "beta": 2,
-    "release": 3
   };
   var productNames = {
     "Firefox": "Firefox Desktop",
@@ -474,10 +441,6 @@ function getHumanReadableOptions(filterName, options) {
   var archNames = {
     "x86": "32-bit",
     "x86-64": "64-bit"
-  };
-  var e10sNames = {
-    "false": "no e10s",
-    "true": "e10s"
   };
   var processTypeNames = {
     "false": "main process",
@@ -585,16 +548,11 @@ function getHumanReadableOptions(filterName, options) {
       return [option, archNames.hasOwnProperty(option) ? archNames[option] :
         option];
     });
-  } else if (filterName === "e10sEnabled") {
-    return options.map(function (option) {
-      return [option, e10sNames.hasOwnProperty(option) ? e10sNames[option] :
-        option];
-    });
   } else if (filterName === "child") {
     return options.map(function (option) {
       return [option, processTypeNames.hasOwnProperty(option) ?
-        processTypeNames[option] : option];
-    });
+        processTypeNames[option] : option + " process"];
+    }).concat([["*", "any process"]]);
   } else if (filterName === "measure") {
     // Add a hidden version of the option with spaces instead of underscores, to be able to search with spaces
     return options.sort()
@@ -649,11 +607,10 @@ function getHumanReadableOptions(filterName, options) {
           (version <= latestNightlyVersion - 1 ? goodOptions : badOptions)
           .push(option);
         } else if (parts[0] === "beta") {
-          (version <= latestNightlyVersion - 2 ? goodOptions : badOptions)
+          (version <= latestNightlyVersion - 1 ? goodOptions : badOptions)
           .push(option);
         } else if (parts[0] === "release") {
-          (version <= latestNightlyVersion - 3 ? goodOptions : badOptions)
-          .push(option);
+          return;
         } else {
           badOptions.push(option);
         }
@@ -696,13 +653,19 @@ function getHumanReadableOptions(filterName, options) {
       options = options.concat([null])
         .concat(badOptions);
     }
+
     return options.map(function (option) {
-      return option !== null ? [option, option.replace("/", " ")] : null;
+      return option !== null ? [option, getHumanReadableChannelName(option)] : null;
     });
   }
+
   return options.map(function (option) {
-    return [option, option]
+    return [option, option];
   });
+}
+
+function getHumanReadableChannelName(channel) {
+  return channel ? channel.replace("aurora", "dev edition").replace("/", " ") : '';
 }
 
 function getHumanReadableBucketOptions(kind, buckets) {
@@ -714,6 +677,8 @@ function getHumanReadableBucketOptions(kind, buckets) {
         " percentage"
       ];
     });
+  } else if (kind == "categorical") {
+    return buckets.map( (b, i) => ["bucket-" + i.toString(), b] )
   }
 
   return buckets.map(function (start) {
@@ -822,15 +787,11 @@ function multiselectSetOptions(element, options, defaultSelected) {
     });
     element.empty()
       .append(groups.map(function (group) {
-          var optionsString = groupOptions[group].map(function (triple) {
-              return '<option value="' + triple[0] + '">' + triple[1] +
-                '</option>';
-            })
-            .join();
-          return '<optgroup label="' + group + '">' + optionsString +
-            '</optgroup>'
-        })
-        .join())
+        return $('<optgroup>', {label: group})
+          .append(groupOptions[group].map(function (triple) {
+            return $("<option>", {value: triple[0]}).text(triple[1]);
+          }));
+        }))
       .multiselect("rebuild");
   } else { // Build option elements
     options.forEach(function (option) {
@@ -847,12 +808,10 @@ function multiselectSetOptions(element, options, defaultSelected) {
     element.empty()
       .append(options.map(function (option) {
           if (option === null) {
-            return '<option disabled>&nbsp;</option>';
+            return $('<option>').prop('disabled', true);
           }
-          return '<option value="' + option[0] + '">' + option[1] +
-            '</option>';
-        })
-        .join())
+          return $('<option>', {value: option[0]}).text(option[1]);
+        }))
       .multiselect("rebuild");
   }
 
@@ -1028,4 +987,119 @@ function updateOSs() {
     });
     optionGroupLabel.addClass("all-selected");
   });
+}
+
+// Build a URL for linking to the probe-dictionary.
+function buildDictionaryURL(metric, channel, description) {
+  var baseUrl = "https://telemetry.mozilla.org/probe-dictionary/";
+  var params = {
+    "searchtype": "in_name",
+    "optout": "false",
+    "channel": channel,
+    "constraint": "is_in",
+    "version": "any",
+  };
+
+  if (metric.startsWith("SCALARS_")) {
+    // Scalar naming in the aggregates is different from the Firefox names.
+    metric = metric.replace(/^SCALARS_/, "").toLowerCase();
+    params["detailView"] = "scalar/" + metric;
+  } else if (metric.startsWith("SIMPLE_MEASURES_")) {
+    metric = metric.replace(/^SIMPLE_MEASURES_/, "").toLowerCase();
+    params["detailView"] = "simpleMeasurements/" + metric;
+  } else {
+    // All other probes in the aggregates should be histograms.
+    params["detailView"] = "histogram/" + metric;
+  }
+
+  params["search"] = metric.toLowerCase();
+  return baseUrl + "?" + $.param(params);
+}
+
+function getDescription(metric, channel, description) {
+  var descr = metric;
+  if (description && (description.length > 0)) {
+    descr = description;
+  }
+
+  return descr;
+}
+
+function getDescriptionLink(metric, channel, description) {
+  var metricUrl = buildDictionaryURL(metric, channel, description);
+
+  if (metricUrl) {
+    var link = $("<a>", {
+      href: metricUrl,
+      target: "_blank",
+      css: {
+        color: "black",
+      },
+      "aria-hidden": "true",
+    });
+    link.append($("<i>", {
+      class: "btn btn-outline-primary fa fa-info-circle",
+    }).text(" More details"));
+  }
+  return link;
+}
+
+function getUseCounterLink(metric, channel, description) {
+  var metricUrl = buildDictionaryURL(metric, channel, description);
+  if (!metric.startsWith("USE_COUNTER2")) {
+    return null; // Clear use counter link;
+  }
+  //Show correct use counter link based on group selection.
+  var metricSplit = metric.split("_");
+  if (metricSplit.length < 3) {
+    return null;
+  }
+  var group = metricSplit[2];
+  var useCounterLink = $("<a>", {
+    href: "http://georgf.github.io/usecounters/#kind=page&group=" + group + "&channel=beta",
+    target: "_blank",
+    css: {
+      color: "black",
+    },
+  });
+  useCounterLink.append($("<i>", {
+    class: "btn btn-outline-primary fa fa-info-circle",
+  }).text(" View in use counter dashboard."));
+  return useCounterLink;
+}
+
+function saveStateStringToUrl(stateString) {
+  // Save to the URL hash if it changed
+  var url = "";
+  var index = window.location.href.indexOf("#");
+  if (index > -1) {
+    url = decodeURI(window.location.href.substring(index + 1));
+  }
+  if (url[0] == "!") {
+    url = url.slice(1);
+  }
+  if (url !== stateString) {
+    window.location.replace(window.location.origin + window.location.pathname +
+      "#!" + encodeURI(stateString));
+  }
+}
+
+function saveStateStringToCookie(stateString) {
+  // Save the state in a cookie that expires in 28 days
+  let expiry = new Date();
+  expiry.setTime(expiry.getTime() + (28 * 24 * 60 * 60 * 1000));
+  document.cookie = "stateFromUrl=" + stateString + "; expires=" + expiry.toGMTString();
+}
+
+function buildStateString(pageState) {
+  return Object.keys(pageState)
+    .sort()
+    .map(function (key) {
+      var value = pageState[key];
+      if ($.isArray(value)) {
+        value = value.join("!");
+      }
+      return encodeURIComponent(key) + "=" + encodeURIComponent(value);
+    })
+    .join("&");
 }

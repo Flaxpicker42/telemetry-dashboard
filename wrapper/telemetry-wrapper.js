@@ -20,7 +20,6 @@ window.TelemetryWrapper = window.TelemetryWrapper || {};
  *  - evoVersions:int - show evolutions of values over the past `evoVersions` versions in `channel` starting at `version` instead of histograms
 */
 window.TelemetryWrapper.go = function (params, element) {
-
   Telemetry.init(function () {
     setDefaultParams(params);
 
@@ -28,7 +27,7 @@ window.TelemetryWrapper.go = function (params, element) {
       graphTitleEl,
       graphSubtitleEl,
       graphEl,
-      graphLegendEl] = createGraphEls();
+      graphLegendEl] = createGraphEls(params);
     element.appendChild(graphContainerEl);
 
     var evolutionsPromise;
@@ -174,6 +173,15 @@ window.TelemetryWrapper.go = function (params, element) {
               return !!evo;
             });
         }
+        if (!evolutions.length) {
+          if (key == '') {
+            // unkeyed histogram with no evolutions. Show a user-visible error
+            showError('All data sanitized away', params, graphContainerEl);
+            return;
+          }
+          console.warn('Whoops? All evolutions sanitized away for key:', key);
+          return;
+        }
 
         // Multiple keys need multiple DOM nodes, in order, in the same place.
         if (oldGraphContainerEl) {
@@ -181,7 +189,7 @@ window.TelemetryWrapper.go = function (params, element) {
             graphTitleEl,
             graphSubtitleEl,
             graphEl,
-            graphLegendEl] = createGraphEls();
+            graphLegendEl] = createGraphEls(params);
           element.insertBefore(graphContainerEl, oldGraphContainerEl.nextSibling);
         }
         oldGraphContainerEl = graphContainerEl;
@@ -239,7 +247,8 @@ window.TelemetryWrapper.go = function (params, element) {
           // but no one'd see them but us.
           return {
             date: i,
-            value: count / hist.count * 100
+            value: count / hist.count * 100,
+            count: count,
           };
         }));
 
@@ -340,21 +349,25 @@ window.TelemetryWrapper.go = function (params, element) {
     var [kind, desc] = [evolutions[0].kind, evolutions[0].description];
     var valueses;
     var yLabel;
+    var percentileLabel = ' - medians'; // i18n?
     var valuesArePercent = false;
     if (kind == 'enumerated' || kind == 'boolean' || kind == 'flag') {
-      const BUCKET_INDEX_FOR_ENUMERATED = 0;
-      if (kind == 'boolean') {
+      const bucketIndex = params.evoBucketIndex > 0 ? params.evoBucketIndex : 0;
+      if (kind == 'boolean' && bucketIndex == 0) {
         yLabel = desc + ' % FALSE'; // TODO: i18n
       } else {
-        yLabel = desc + ' - bucket ' + BUCKET_INDEX_FOR_ENUMERATED; // i18n?
+        yLabel = desc + ' - bucket ' + bucketIndex; // i18n?
       }
       valueses = evolutions.map(evo =>
-        evo.map(hist => 100 * hist.values[BUCKET_INDEX_FOR_ENUMERATED] / hist.count
+        evo.map(hist => 100 * hist.values[(bucketIndex >= hist.values.length ? 0 : bucketIndex)] / hist.count
       ));
       valuesArePercent = true;
     } else {
-      yLabel = evolutions[0].description + ' - medians'; // i18n?
-      valueses = evolutions.map(evo => evo.percentiles(50));
+      if (params.percentile != 50) {
+        percentileLabel = ' - ' + params.percentile + 'th percentile'; // i18n?
+      }
+      yLabel = evolutions[0].description + percentileLabel;
+      valueses = evolutions.map(evo => evo.percentiles(params.percentile));
     }
     var datas = dateses.map((dates, i) => dates.map((date, j) => {
       return {
@@ -380,7 +393,7 @@ window.TelemetryWrapper.go = function (params, element) {
         (date.getMonth() + 1) + '-' + date.getDate(), // TODO: i18n
       yax_format: y => valuesArePercent ? y + '%' : y,
       transition_on_update: false,
-      interpolate: 'linear',
+      interpolate: d3.curveLinear,
       legend: legendLabels,
       legend_target: graphEl.querySelector('.graph-legend'),
       aggregate_rollover: true,
@@ -395,7 +408,7 @@ window.TelemetryWrapper.go = function (params, element) {
       aggregate_rollover: true,
       data: datas,
       chart_type: 'line',
-      interpolate: 'linear',
+      interpolate: d3.curveLinear,
       full_width: true,
       full_height: true,
       legend: hists.map(hist => hist.compareLabel),
@@ -482,6 +495,9 @@ window.TelemetryWrapper.go = function (params, element) {
         if (!starts[index]) {
           return '';
         }
+        if (hist.kind == 'categorical') {
+          return starts[index];
+        }
         return formatNumber(starts[index]);
       },
       yax_format: value => value + '%',
@@ -497,6 +513,8 @@ window.TelemetryWrapper.go = function (params, element) {
           label = ' \u2265 ' + formatNumber(starts[index]);
         } else if (hist.kind == 'enumerated') {
           label = formatNumber(starts[index]);
+        } else if (hist.kind == 'categorical') {
+          label = starts[index];
         } else {
           label = '[' + formatNumber(starts[index])
                   + ', ' + formatNumber(ends[index]) + ')';
@@ -527,6 +545,29 @@ window.TelemetryWrapper.go = function (params, element) {
     var missingWidth = window.parseFloat(hangingBar.getAttribute('width'));
     for (var tick of graphEl.querySelectorAll('.mg-extended-y-ticks')) {
       tick.setAttribute('x2', window.parseFloat(tick.getAttribute('x2')) + missingWidth);
+    }
+
+    // The values used in this section are arbitrary, they seem to fit for now
+    if (hist.kind == 'categorical') {
+      // Rotate the x axis labels
+      for (var text of graphEl.querySelectorAll(".mg-x-axis text:not(.label)")) {
+        text.setAttribute("dx", "0.3em");
+        text.setAttribute("dy", "0");
+        text.setAttribute("text-anchor", "start");
+        text.setAttribute("transform", `rotate(20 ${text.getAttribute("x")} ${text.getAttribute("y")})`);
+        text.setAttribute("overflow", "visible");
+      }
+      // Increase the labels separator size
+      Array.from(graphEl.querySelectorAll(".mg-x-axis line"))
+        .map(l => l.setAttribute("y2", parseInt(l.getAttribute("y1")) + 12));
+      // Make sure the histogram label does not overlap the x axis labels
+      let histLabel = graphEl.querySelector(".mg-x-axis text.label");
+      histLabel.setAttribute("y", parseInt(histLabel.getAttribute("y")) + 30);
+      // Resize the graph containers
+      let svg = graphEl.querySelector("svg");
+      svg.setAttribute("height", parseInt(svg.getAttribute("height")) + 50);
+      let graphContainer = svg.parentNode.parentNode;
+      graphContainer.style.height = `${parseInt(graphContainer.clientHeight) + 50}px`;
     }
   }
 
@@ -576,7 +617,7 @@ window.TelemetryWrapper.go = function (params, element) {
         content: data.map((count, i) => {
           return {
             label: BUCKET_NAMES[i] || starts[i],
-            value: count.value,
+            value: count.count,
           }
         }).filter(datum => datum.value > 0),
       },
@@ -655,12 +696,59 @@ window.TelemetryWrapper.go = function (params, element) {
     container.appendChild(msgEl);
   }
 
-  function createGraphEls() {
+  function createTMOLinkForParams(params) {
+    var url = `https://telemetry.mozilla.org/new-pipeline/${params.evoVersions ? 'evo' : 'dist'}.html#!`;
+
+    var queryParams = [];
+    queryParams.push(`max_channel_version=${params.channel}%252F${params.version}`);
+    if (params.evoVersions) {
+      queryParams.push(`min_channel_version=${params.channel}%252F${params.version - params.evoVersions + 1}`);
+    }
+
+    queryParams.push(`sanitize=${params.sanitize ? 1 : 0}`);
+    queryParams.push(`trim=${params.trim ? 1 : 0}`);
+    queryParams.push(`use_submission_date=${params.useSubmissionDate ? 1 : 0}`);
+    queryParams.push(`measure=${params.metric}`);
+
+    if (params.filters) {
+      if ('os' in params.filters) {
+        queryParams.push(`os=${params.filters.os}`);
+      }
+      if ('application' in params.filters) {
+        queryParams.push(`product=${params.filters.application}`);
+      }
+      if ('e10sEnabled' in params.filters) {
+        queryParams.push(`e10s=${params.filters.e10sEnabled}`);
+      }
+      if ('child' in params.filters) {
+        queryParams.push(`processType=${params.filters.child}`);
+      }
+    }
+
+    // Special case: dashgen defaults to not filtering anything
+    // but the dashes default to filtering to only Firefox Desktop
+    if (!(params.filters && 'application' in params.filters)) {
+      // This isn't all products, but it's close enough
+      queryParams.push('product=Firefox!Fennec');
+    }
+
+    if (params.compare) {
+      queryParams.push(`compare=${params.compare}`);
+    }
+
+    return url + queryParams.join('&');
+  }
+
+  function createGraphEls(params) {
     var graphContainerEl = document.createElement('div');
     graphContainerEl.className = 'graph-container';
     var graphTitleEl = document.createElement('h2');
     graphTitleEl.className = 'graph-title';
     graphContainerEl.appendChild(graphTitleEl);
+    var graphTitleLinkEl = document.createElement('a');
+    graphTitleLinkEl.setAttribute('href', createTMOLinkForParams(params));
+    graphTitleLinkEl.className = 'graph-title-link';
+    graphTitleEl.appendChild(graphTitleLinkEl);
     var graphSubtitleEl = document.createElement('div');
     graphSubtitleEl.className = 'graph-subtitle';
     graphContainerEl.appendChild(graphSubtitleEl);
@@ -670,7 +758,7 @@ window.TelemetryWrapper.go = function (params, element) {
     graphLegendEl.className = 'graph-legend';
     graphEl.appendChild(graphLegendEl);
     graphContainerEl.appendChild(graphEl);
-    return [graphContainerEl, graphTitleEl, graphSubtitleEl, graphEl, graphLegendEl];
+    return [graphContainerEl, graphTitleLinkEl, graphSubtitleEl, graphEl, graphLegendEl];
   }
 
   function formatNumber(number) {
@@ -739,6 +827,7 @@ window.TelemetryWrapper.go = function (params, element) {
     params.sensibleCompare = params.sensibleCompare != 'false';
     params.keyLimit = window.parseInt(params.keyLimit) || 4;
     params.evoVersions = params.evoVersions; // default undefined
+    params.percentile = params.percentile || 50;
   }
 
 }

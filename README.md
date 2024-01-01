@@ -3,18 +3,14 @@ Telemetry Dashboard
 
 This repository contains the **source code for [telemetry.mozilla.org](https://telemetry.mozilla.org)**. The dashboards on this site can be used for everything from checking measure values to figuring out common causes of Firefox hangs.
 
-The main dashboards on [telemetry.mozilla.org](https://telemetry.mozilla.org) consume data from Telemetry's v2 and v4 backends using Telemetry.js. For an overview of how all these systems fit together, see [Telemetry Demystified](https://anthony-zhang.me/blog/telemetry-demystified/).
+The main dashboards on [telemetry.mozilla.org](https://telemetry.mozilla.org) consume data from Telemetry's backend using Telemetry.js.
 
-The dashboards that do not use Telemetry.js generally use [scheduled analysis jobs](https://analysis.telemetry.mozilla.org/) that regularly publish data on S3. The source code for these can be found in their respective repositories.
-
-This repository also contains the **source code for Telemetry.js** (all versions). The specific files can be found under the `v1/` and `v2/` directories.
-
-We currently have two versions of the Histogram Dashboard and Evolution Dashboard - one for the v2 pipeline, and one for the v4 pipeline. The v4 versions live in the `new-pipeline/` directory. The v2 versions live in the project root.
+This repository also contains the **source code for Telemetry.js**. The specific files can be found under the `v2/` directory.
 
 Deploying Telemetry Dashboard
 -----------------------------
 
-The [telemetry.mozilla.org](https://telemetry.mozilla.org) site is hosted in [Github Pages](https://pages.github.com/), so it may also be accessed via [mozilla.github.io/telemetry-dashboard](https://mozilla.github.io/telemetry-dashboard/). In front of Github Pages, there is also the CloudFront CDN (managed by :whd).
+The [telemetry.mozilla.org](https://telemetry.mozilla.org) site is hosted in [Github Pages](https://pages.github.com/), so it may also be accessed via [mozilla.github.io/telemetry-dashboard](https://mozilla.github.io/telemetry-dashboard/). In front of Github Pages, there is also a GCP CDN (managed by DSRE).
 
 Updates to the `gh-pages` branch (also the default branch) will be reflected on [telemetry.mozilla.org](https://telemetry.mozilla.org) after a few moments.
 
@@ -23,8 +19,7 @@ Using Telemetry.js
 
 Check out the documentation!
 
-* [Telemetry.js v1](https://telemetry.mozilla.org/docs.html)
-* [Telemetry.js v2](https://github.com/mozilla/telemetry-dashboard/blob/master/v2/doc.md)
+* [Telemetry.js v2](https://github.com/mozilla/telemetry-dashboard/blob/gh-pages/v2/doc.md)
 
 Adding Telemetry Probes
 -----------------------
@@ -33,24 +28,42 @@ See this [MDN article](https://developer.mozilla.org/en-US/docs/Mozilla/Performa
 
 For setting histogram properties, make sure to check out the [histogram simulator](https://telemetry.mozilla.org/histogram-simulator/), which might help with designing histograms that fit the expected data well.
 
-Hacking Telemetry Dashboard
----------------------------
+Contributing to the Telemetry Dashboard
+---------------------------------------
 
 This project is entirely open source, and licensed under the MPL to boot. Contributions welcome!
 
-Some notes for working on the code:
+### Getting started
 
-* A local webserver is really helpful for running a version of the site on the same machine you're developing on.
-  * This can be done as follows (requires Python):
+Looking for some task to get started on? Check the list of [mentored issues](https://github.com/mozilla/telemetry-dashboard/labels/mentored). If you're unsure what to choose, just get in touch.
+
+Communication happens mostly on Github in the comments for issues or pull requests, but we're also active in IRC in [#tmo on irc.mozilla.org](https://client00.chat.mibbit.com/?server=irc.mozilla.org&channel=%23tmo).
+
+### Working on the dashboard
+
+A local webserver is really helpful for running a version of the site on the same machine you're developing on.
+* This can be done as follows (requires Python):
 
           cd /PATH_TO_REPOSITORY_ROOT
-          python -m SimpleHTTPServer
+          python -m http.server
           # now visit localhost:8000 in your browser to see the page
 
-  * Note that permalink buttons (in the top right hand corner of the main dashboards) will not work when running the site on local servers. This is because they are shortened with bit.ly, which doesn't allow local links.
-* A remote webserver is really helpful for showing off your features and fixes to other people (especially for code review).
-  * [GitHub Pages](https://pages.github.com/) is great for this - just push your local branch to the `gh-pages` branch on your GitHub fork of the repository, and the site will be live on `YOUR_USERNAME.github.io/telemetry-dashboard`.
-  * If you need more than one test site up at a time, try [Divshot](https://divshot.com/), a static website hosting service.
-  * For pull requests, it is recommended that you set up a live site hosting your branch. This makes it a lot easier for reviewers to check out the changes.
+* It can also be done with NPM:
+
+          cd /PATH_TO_REPOSITORY_ROOT
+          npm install http-server -g
+          # now visit localhost:8080 in your browser to see the page
+
+Shortlink buttons (in the top right hand corner of the main dashboards) will not work when running the site on local servers. This is because they are shortened with bit.ly, which doesn't allow local links.
+
+### Submitting pull requests for the dashboard
+
+For pull requests, it is recommended that you set up a live site hosting your branch. This makes it a lot easier for reviewers to check out the changes.
+
+[GitHub Pages](https://pages.github.com/) is great for this, you can enable this in your forked repository under "Settings", "Github pages" and then share the link in your pull requests comments. The [Github help pages](https://help.github.com/categories/github-pages-basics/) have more information.
+
+If you need more than one test site up at a time, try [Divshot](https://divshot.com/), a static website hosting service.
+
+### Working on Telemetry.js
 
 Telemetry.js (both versions) is pretty straightforward to work on. However, note that sites that use Telemetry.js generally hotlink to the source files - make sure to preserve API backwards compatibility wherever possible.

@@ -82,6 +82,7 @@ window.addEventListener('load', function () {
       sensibleCompare: $('#sensible-compare').checked,
       evoVersions: $('#evo-radio').checked ? $('#evo-versions').value : 0,
       filters: undefined,
+      evoBucketIndex: $('#evo-radio').checked ? $('#evo-bucketindex').value : -1
     };
 
     // now to add the filters
@@ -134,6 +135,9 @@ window.addEventListener('load', function () {
       _dash.splice(plotIndex, 1);
       updatePostData();
       tr.parentElement.removeChild(tr);
+      if (_dash.length == 0) {
+        $('#generate').setAttribute('disabled',true);
+      }
     });
     rmTd.appendChild(rmButton);
     tr.appendChild(rmTd);
@@ -141,7 +145,9 @@ window.addEventListener('load', function () {
     $('.dashboard-plots-body').appendChild(tr);
 
     // now that the dash spec has a plot, user can generate a dash
-    $('#generate').removeAttribute('disabled');
+    if (_dash.length != 0) {
+        $('#generate').removeAttribute('disabled');
+    }
   }
 
   function updateChannels() {
@@ -203,8 +209,7 @@ window.addEventListener('load', function () {
         // Only use the Uppercased app names, as they are the relevant ones
         createOption($('#application'), '', '-No Filter-');
         filterOptions['application']
-          .filter(appName =>
-            appName[0] == appName[0].toUpperCase() && isNaN(appName[0] * 1))
+          .filter(appName => appName[0] >= 'A' && appName[0] <= 'Z')
           .forEach(appName => createOption($('#application'), appName));
 
         // OS has only three useful families: Windows, Linux, OSX
@@ -261,6 +266,7 @@ window.addEventListener('load', function () {
           sensibleCompare: params['sensibleCompare'][i],
           evoVersions: params['evoVersions'][i],
           filters: params['filters'][i] ? JSON.parse(params['filters'][i]) : '',
+          evoBucketIndex: params['evoBucketIndexes'][i]
         };
         _dash.push(plot);
         addPlotToTable(plot);
@@ -279,7 +285,8 @@ window.addEventListener('load', function () {
     var sensibleCompares = [];
     var evoVersionses = [];
     var filterses = [];
-    _dash.forEach(plot => {
+    var evoBucketIndexes = [];
+    _dash.forEach((plot) => {
       channels.push(plot.channel);
       versions.push(plot.version || '');
       metrics.push(plot.metric);
@@ -290,6 +297,7 @@ window.addEventListener('load', function () {
       sensibleCompares.push(plot.sensibleCompare || false);
       evoVersionses.push(plot.evoVersions || 0);
       filterses.push(plot.filters ? JSON.stringify(plot.filters) : '');
+      evoBucketIndexes.push(plot.evoBucketIndex);
     });
 
     var queryString = '?' +
@@ -297,7 +305,8 @@ window.addEventListener('load', function () {
       `&metric=${metrics.join(';')}&useSubmissionDate=${useSubmissionDates.join(';')}` +
       `&sanitize=${sanitizes.join(';')}&trim=${trims.join(';')}` +
       `&compare=${compares.join(';')}&sensibleCompare=${sensibleCompares.join(';')}` +
-      `&evoVersions=${evoVersionses.join(';')}&filters=${filterses.join(';')}`;
+      `&evoVersions=${evoVersionses.join(';')}&filters=${filterses.join(';')}` +
+      `&evoBucketIndexes=${evoBucketIndexes.join(';')}`;
 
     if (!window.location.search) {
       return window.location.href + queryString;
@@ -308,7 +317,6 @@ window.addEventListener('load', function () {
 
   function updatePostData() {
     const BASE_URL = 'https://telemetry.mozilla.org/';
-
     const EXTERNAL_CSS = '' +
       BASE_URL + 'new-pipeline/style/metricsgraphics.css;' +
       BASE_URL + 'wrapper/telemetry-wrapper.css';

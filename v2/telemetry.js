@@ -15,6 +15,7 @@
     CACHE: {},
     CACHE_LAST_UPDATED: {},
     CACHE_TIMEOUT: 4 * 60 * 60 * 1000,
+    MAX_URL_LENGTH: 4094,
   };
 
   var urlCallbacks = {}
@@ -22,17 +23,21 @@
   Telemetry.Histogram = (function () {
     function Histogram(buckets, values, kind, submissions, sum,
       description, measure) {
-      assert(typeof buckets[0] === "number", "`buckets` must be an array");
-      assert(typeof values[0] === "number", "`values` must be an array");
+      assert(["number", "string"].indexOf(typeof buckets[0]) > -1,
+          "`buckets` must be an array of numbers or strings, is array of " + (typeof buckets[0]));
+      assert(typeof values[0] === "number",
+         "`values` must be an array of numbers, is array of " + (typeof values[0]));
       assert(["flag", "boolean", "count", "enumerated", "linear",
-          "exponential"].indexOf(kind) >= 0,
-        "`kind` must be a valid histogram kind");
+          "exponential", "categorical"].indexOf(kind) >= 0,
+        "`kind` must be a valid histogram kind, is " + kind);
       assert(typeof submissions === "number",
-        "`submissions` must be a number");
-      assert(typeof sum === "number", "`sum` must be a number");
+        "`submissions` must be a number, is " + (typeof submissions));
+      assert(typeof sum === "number",
+        "`sum` must be a number, is " + (typeof sum));
       assert(typeof description === "string",
-        "`description` must be a string");
-      assert(typeof measure === "string", "`measure` must be a string");
+        "`description` must be a string, is " + (typeof description));
+      assert(typeof measure === "string",
+        "`measure` must be a string, is " + (typeof measure));
       this.buckets = buckets;
       this.values = values;
 
@@ -129,13 +134,16 @@
 
   Telemetry.Evolution = (function () {
     function Evolution(buckets, data, kind, description, measure) {
-      assert(typeof buckets[0] === "number", "`buckets` must be an array");
+      assert(["number", "string"].indexOf(typeof buckets[0]) > -1,
+          "`buckets` must be an array of numbers or strings, is array of " + (typeof buckets[0]));
       assert(typeof data[0].histogram[0] === "number",
-        "`data` must be an array");
-      assert(typeof kind === "string", "`kind` must be a string");
+        "`data` must be an array of numbers, is array of " + (typeof data[0].histogram[0]));
+      assert(typeof kind === "string",
+        "`kind` must be a string, is " + (typeof kind));
       assert(typeof description === "string",
-        "`description` must be a string");
-      assert(typeof measure === "string", "`measure` must be a string");
+        "`description` must be a string, is " + (typeof description));
+      assert(typeof measure === "string",
+        "`measure` must be a string, is " + (typeof measure));
       this.buckets = buckets;
       this.data = data;
       this.kind = kind;
@@ -304,12 +312,19 @@
       });
     };
 
+    Evolution.prototype.sampleCounts = function () {
+      return this.map(function (histogram) {
+        return histogram.count;
+      });
+    };
+
     return Evolution;
   })();
 
   Telemetry.getJSON = function (url, callback) {
     assert(typeof url === "string", "`url` must be a string");
     assert(typeof callback === "function", "`callback` must be a function");
+    assert(url.length <= Telemetry.MAX_URL_LENGTH, "`url` is too long (" + url.length + " > " + Telemetry.MAX_URL_LENGTH + ")");
     if (Telemetry.CACHE[url] !== undefined) {
       if (Telemetry.CACHE[url] !== null && Telemetry.CACHE[url]._loading) { // Requested but not yet loaded
         var xhr = Telemetry.CACHE[url];
@@ -459,6 +474,35 @@
     });
   }
 
+  function populateEntriesMap(entriesMap, url, callback) {
+    Telemetry.getJSON(url, function (histograms, status) {
+      if (histograms === null) {
+        assert(status === 404 || status === 500 || status === 405 , "Could not obtain evolution: status " +
+          status + " (" + url + ")"); // Only allow null evolution if it is 404, 500 or 405 - if there is no evolution for the given filters
+        callback({});
+      } else {
+        histograms.data.forEach(function (entry) {
+          if (!entriesMap.hasOwnProperty(entry.label)) {
+            entriesMap[entry.label] = [];
+          }
+          entriesMap[entry.label].push(entry);
+        });
+        callback(entriesMap, histograms);
+      }
+    });
+  }
+
+  function entriesMapToEvolutionMap(entriesMap, histograms, metric) {
+    var evolutionMap = {};
+    for (var label in entriesMap) {
+      evolutionMap[label] = new Telemetry.Evolution(histograms.buckets,
+        entriesMap[label], histograms.kind, histograms.description,
+        metric);
+    };
+    return evolutionMap;
+  }
+
+
   Telemetry.getEvolution = function Telemetry_getEvolution(channel, version,
     metric, filters, useSubmissionDate, callback) {
     assert(Telemetry.CHANNEL_VERSION_DATES !== null && Telemetry.CHANNEL_VERSION_BUILDIDS !==
@@ -474,8 +518,15 @@
     Object.keys(filters)
       .sort()
       .forEach(function (filterName) { // we need to sort the keys in order to make sure the same filters result in the same URL each time, for caching
-        filterString += "&" + encodeURIComponent(filterName) + "=" +
-          encodeURIComponent(filters[filterName]);
+        var filter = filters[filterName];
+        if (!Array.isArray(filter)) {
+          filter = [filter];
+        }
+
+        for (var i = 0; i < filter.length; ++i) {
+          filterString += "&" + encodeURIComponent(filterName) + "=" +
+            encodeURIComponent(filter[i]);
+        }
       });
     var url = Telemetry.BASE_URL + "aggregates_by/" + (useSubmissionDate ?
         "submission_date" : "build_id") +
@@ -483,27 +534,31 @@
       encodeURIComponent(version) + "&dates=" +
       encodeURIComponent(dates) + "&metric=" + encodeURIComponent(metric) +
       filterString;
-    Telemetry.getJSON(url, function (histograms, status) {
-      if (histograms === null) {
-        assert(status === 404, "Could not obtain evolution: status " +
-          status + " (" + url + ")"); // Only allow null evolution if it is 404 - if there is no evolution for the given filters
-        callback({});
-      } else {
-        var entriesMap = {}; // Mapping from entry labels to a list of entries having that label
-        histograms.data.forEach(function (entry) {
-          if (!entriesMap.hasOwnProperty(entry.label)) {
-            entriesMap[entry.label] = [];
-          }
-          entriesMap[entry.label].push(entry);
+    var entriesMap = {};
+    if (url.length > Telemetry.MAX_URL_LENGTH) {
+      assert(useSubmissionDate, "`url` is too long because of build_id?!");
+      // Some versions have submission dates ranging across years.
+      // This makes for urls that are too long and need to be chopped.
+      var submissionDates = Telemetry.CHANNEL_VERSION_DATES[channel][version];
+      var dates_half = submissionDates.slice(0, submissionDates.length / 2);
+      var url_half = Telemetry.BASE_URL + "aggregates_by/submission_date/channels/" +
+        encodeURIComponent(channel) + "/?version=" + encodeURIComponent(version) +
+        "&dates=" + encodeURIComponent(dates_half.join(",")) + "&metric=" +
+        encodeURIComponent(metric) + filterString;
+      populateEntriesMap(entriesMap, url_half, function (entriesMap) {
+        dates_half = submissionDates.slice(submissionDates.length / 2);
+        url_half = Telemetry.BASE_URL + "aggregates_by/submission_date/channels/" +
+          encodeURIComponent(channel) + "/?version=" + encodeURIComponent(version) +
+          "&dates=" + encodeURIComponent(dates_half.join(",")) + "&metric=" +
+          encodeURIComponent(metric) + filterString;
+        populateEntriesMap(entriesMap, url_half, function (entriesMap, histograms) {
+          callback(entriesMapToEvolutionMap(entriesMap, histograms, metric));
         });
-        var evolutionMap = {}; // Mapping from labels to evolutions for those labels
-        for (var label in entriesMap) {
-          evolutionMap[label] = new Telemetry.Evolution(histograms.buckets,
-            entriesMap[label], histograms.kind, histograms.description,
-            metric);
-        };
-        callback(evolutionMap);
-      }
+      });
+      return;
+    }
+    populateEntriesMap(entriesMap, url, function (entriesMap, histograms) {
+      callback(entriesMapToEvolutionMap(entriesMap, histograms, metric));
     });
   }
 
@@ -537,6 +592,9 @@
     assert((fromVersion === undefined && toVersion === undefined) || (
         typeof fromVersion === "string" && typeof toVersion === "string"),
       "`fromVersion` and `toVersion` must be strings");
+    if (fromVersion && fromVersion.split("/")[0] !== toVersion.split("/")[0]) {
+      return [];
+    }
     var versions = [];
     for (var channel in Telemetry.CHANNEL_VERSION_DATES) {
       for (var version in Telemetry.CHANNEL_VERSION_DATES[channel]) {
